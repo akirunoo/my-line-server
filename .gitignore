@@ -1,4 +1,3 @@
-be-zero-*.json
-be-zero-*.json
-be-zero-*.json
-be-zero-*.json
+
+# Firebaseの秘密鍵
+serviceAccountKey.json
