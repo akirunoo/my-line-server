@@ -46,6 +46,11 @@ if (!LINE_ACCESS_TOKEN) {
 
 // 7. ルート群
 
+// 軽量レスポンスのping用API（Express）
+app.get('/ping', (req, res) => {
+  res.status(200).send('OK');
+});
+
 // カスタムトークン発行API
 app.post("/createCustomToken", async (req, res) => {
   const { lineUserId } = req.body;
