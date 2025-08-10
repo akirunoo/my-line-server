@@ -6,47 +6,30 @@ const app = express();
 
 // CORS設定オプション
 const corsOptions = {
-  origin: 'https://be-zero-413cf.web.app',  // 許可するフロントのURL（あなたのLIFFやWebのドメイン）
+  origin: 'https://be-zero-413cf.web.app',  // 許可するフロントのURL
   methods: ['GET', 'POST', 'OPTIONS'],       // 許可するHTTPメソッド
   allowedHeaders: ['Content-Type', 'Authorization'],  // 許可するヘッダー
-  credentials: true,                          // クッキーや認証情報を許可するならtrue
+  credentials: true,                          // クッキーや認証情報を許可
 };
 
-// CORSミドルウェアを使う（すべてのルートに適用）
+// CORSミドルウェアを全ルートに適用
 app.use(cors(corsOptions));
 
-// プリフライトリクエスト（OPTIONSメソッド）に対するレスポンスを明示的に返す（オプション）
+// プリフライトリクエストに対するレスポンス
 app.options('*', cors(corsOptions), (req, res) => {
   res.sendStatus(200);
 });
 
-// その後にJSONボディパーサーなど他のミドルウェアを書く
+// JSONボディパーサー
 app.use(express.json());
 
-// 2. プリフライトリクエストに対して明示的に200を返す
-app.options('*', cors(corsOptions), (req, res) => {
-  res.sendStatus(200);
-});
-
-// 3. 全リクエストにCORSヘッダーを付与（念のため）
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'https://be-zero-413cf.web.app');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  next();
-});
-
-// 4. JSONボディパーサー
-app.use(express.json());
-
-// 5. Firebase Admin SDK初期化
+// Firebase Admin SDK初期化
 const serviceAccount = require("./serviceAccountKey.json");
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-// 6. 環境変数LINE_ACCESS_TOKENチェック
+// 環境変数LINE_ACCESS_TOKENチェック
 const LINE_ACCESS_TOKEN = process.env.LINE_ACCESS_TOKEN;
 console.log("LINE_ACCESS_TOKEN:", LINE_ACCESS_TOKEN ? "設定済み" : "未設定");
 if (!LINE_ACCESS_TOKEN) {
@@ -54,14 +37,12 @@ if (!LINE_ACCESS_TOKEN) {
   process.exit(1);
 }
 
-// 7. ルート群
+// ルート定義
 
-// /ping エンドポイント（スリープ防止用）
 app.get('/ping', (req, res) => {
   res.status(200).send('OK');
 });
 
-// /reservations API（予約一覧を返す）
 app.get('/reservations', async (req, res) => {
   try {
     const snapshot = await admin.firestore().collection('reservations').get();
@@ -73,7 +54,6 @@ app.get('/reservations', async (req, res) => {
   }
 });
 
-// カスタムトークン発行API
 app.post("/createCustomToken", async (req, res) => {
   const { lineUserId } = req.body;
   if (!lineUserId) {
@@ -98,7 +78,6 @@ app.post("/createCustomToken", async (req, res) => {
   }
 });
 
-// LINE IDトークン検証API
 app.post("/verify", async (req, res) => {
   const { idToken } = req.body;
   if (!idToken) {
@@ -108,7 +87,7 @@ app.post("/verify", async (req, res) => {
     const response = await fetch("https://api.line.me/oauth2/v2.1/verify", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `id_token=${idToken}&client_id=2007886469`
+      body: `id_token=${encodeURIComponent(idToken)}&client_id=2007886469`
     });
     const data = await response.json();
     if (!data.sub) {
@@ -133,7 +112,6 @@ app.post("/verify", async (req, res) => {
   }
 });
 
-// LINE通知送信API
 app.post("/sendLineNotification", async (req, res) => {
   console.log("sendLineNotification called with body:", req.body);
   const { lineUserId, message } = req.body;
