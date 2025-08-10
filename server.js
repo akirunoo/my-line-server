@@ -46,9 +46,21 @@ if (!LINE_ACCESS_TOKEN) {
 
 // 7. ルート群
 
-// 軽量レスポンスのping用API（Express）
+// /ping エンドポイント（スリープ防止用）
 app.get('/ping', (req, res) => {
   res.status(200).send('OK');
+});
+
+// /reservations API（予約一覧を返す）
+app.get('/reservations', async (req, res) => {
+  try {
+    const snapshot = await admin.firestore().collection('reservations').get();
+    const reservations = snapshot.docs.map(doc => doc.data());
+    res.json(reservations);
+  } catch (error) {
+    console.error('Error fetching reservations:', error);
+    res.status(500).send('Server error');
+  }
 });
 
 // カスタムトークン発行API
