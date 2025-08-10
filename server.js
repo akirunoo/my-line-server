@@ -23,15 +23,6 @@ app.options('*', cors(corsOptions), (req, res) => {
 // その後にJSONボディパーサーなど他のミドルウェアを書く
 app.use(express.json());
 
-// 1. CORS設定（必ず一番上で使う）
-const corsOptions = {
-  origin: 'https://be-zero-413cf.web.app', // フロントのURLに合わせてください
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-};
-app.use(cors(corsOptions));
-
 // 2. プリフライトリクエストに対して明示的に200を返す
 app.options('*', cors(corsOptions), (req, res) => {
   res.sendStatus(200);
