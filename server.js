@@ -43,10 +43,21 @@ app.get('/ping', (req, res) => {
   res.status(200).send('OK');
 });
 
+let cachedReservations = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 1000 * 60; // 1分キャッシュ
+
 app.get('/reservations', async (req, res) => {
+  const now = Date.now();
+  if (cachedReservations && (now - cacheTimestamp < CACHE_TTL)) {
+    // キャッシュが有効ならキャッシュ返す
+    return res.json(cachedReservations);
+  }
   try {
     const snapshot = await admin.firestore().collection('reservations').get();
     const reservations = snapshot.docs.map(doc => doc.data());
+    cachedReservations = reservations;
+    cacheTimestamp = now;
     res.json(reservations);
   } catch (error) {
     console.error('Error fetching reservations:', error);
