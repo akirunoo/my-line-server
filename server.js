@@ -6,16 +6,21 @@ const app = express();
 
 // CORS設定オプション
 const corsOptions = {
-  origin: 'https://be-zero-413cf.web.app',
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
+  origin: 'https://be-zero-413cf.web.app',  // 許可するフロントのURL
+  methods: ['GET', 'POST', 'OPTIONS'],       // 許可するHTTPメソッド
+  allowedHeaders: ['Content-Type', 'Authorization'],  // 許可するヘッダー
+  credentials: true,                          // クッキーや認証情報を許可
 };
 
+// CORSミドルウェアを全ルートに適用
 app.use(cors(corsOptions));
+
+// プリフライトリクエストに対するレスポンス
 app.options('*', cors(corsOptions), (req, res) => {
   res.sendStatus(200);
 });
+
+// JSONボディパーサー
 app.use(express.json());
 
 // Firebase Admin SDK初期化
@@ -24,7 +29,7 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-// LINEアクセストークン（環境変数）
+// 環境変数LINE_ACCESS_TOKENチェック
 const LINE_ACCESS_TOKEN = process.env.LINE_ACCESS_TOKEN;
 console.log("LINE_ACCESS_TOKEN:", LINE_ACCESS_TOKEN ? "設定済み" : "未設定");
 if (!LINE_ACCESS_TOKEN) {
@@ -32,70 +37,49 @@ if (!LINE_ACCESS_TOKEN) {
   process.exit(1);
 }
 
-// キャッシュ用
+// ルート定義
+
+app.get('/ping', (req, res) => {
+  res.status(200).send('OK');
+});
+
 let cachedReservations = null;
 let cacheTimestamp = 0;
-const CACHE_TTL = 1000 * 60; // 1分
+const CACHE_TTL = 1000 * 60; // 1分キャッシュ
 
-// GET /reservations?start=YYYY-MM-DD-HH&end=YYYY-MM-DD-HH
 app.get('/reservations', async (req, res) => {
-  const { start, end } = req.query;
+  // クエリパラメータで期間指定を受け取る
+  const start = req.query.start; // 例: "2025-08-04-00"
+  const end = req.query.end;     // 例: "2025-08-10-23"
+
   if (!start || !end) {
     return res.status(400).send("start と end パラメータは必須です");
   }
+
   try {
     const now = Date.now();
     if (cachedReservations && (now - cacheTimestamp < CACHE_TTL)) {
+      // キャッシュ有効なら返す（必要に応じてキャッシュも期間絞り込み対応に）
       return res.json(cachedReservations);
     }
+
+    // Firestoreでdatetimeフィールドの範囲クエリ
     const snapshot = await admin.firestore().collection('reservations')
       .where('datetime', '>=', start)
       .where('datetime', '<=', end)
       .get();
+
     const reservations = snapshot.docs.map(doc => doc.data());
     cachedReservations = reservations;
     cacheTimestamp = now;
+
     res.json(reservations);
   } catch (error) {
-    console.error("Error fetching reservations:", error);
-    res.status(500).send("Server error");
+    console.error('Error fetching reservations:', error);
+    res.status(500).send('Server error');
   }
 });
 
-// POST /reservations 予約登録処理
-// 期待されるJSON例: { uid: "ユーザUID", datetime: "YYYY-MM-DD-HH" }
-app.post('/reservations', async (req, res) => {
-  const { uid, datetime } = req.body;
-  if (!uid || !datetime) {
-    return res.status(400).send({ success: false, message: "uid と datetime は必須です" });
-  }
-  try {
-    // 既に同じ日時に予約があるか確認
-    const querySnap = await admin.firestore().collection('reservations')
-      .where('datetime', '==', datetime)
-      .get();
-    if (!querySnap.empty) {
-      return res.status(409).send({ success: false, message: "この日時は既に予約済みです" });
-    }
-
-    // 予約追加
-    await admin.firestore().collection('reservations').add({
-      userId: uid,
-      datetime,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    // キャッシュクリア（次回GETで再取得させる）
-    cachedReservations = null;
-
-    res.send({ success: true });
-  } catch (error) {
-    console.error("予約登録エラー:", error);
-    res.status(500).send({ success: false, message: "予約登録に失敗しました" });
-  }
-});
-
-// 既存のカスタムトークン発行やLINE通知APIも同じまま残す
 app.post("/createCustomToken", async (req, res) => {
   const { lineUserId } = req.body;
   if (!lineUserId) {
@@ -155,6 +139,7 @@ app.post("/verify", async (req, res) => {
 });
 
 app.post("/sendLineNotification", async (req, res) => {
+  console.log("sendLineNotification called with body:", req.body);
   const { lineUserId, message } = req.body;
   if (!lineUserId || !message) {
     return res.status(400).send("Missing parameters");
@@ -168,7 +153,12 @@ app.post("/sendLineNotification", async (req, res) => {
       },
       body: JSON.stringify({
         to: lineUserId,
-        messages: [{ type: "text", text: message }]
+        messages: [
+          {
+            type: "text",
+            text: message
+          }
+        ]
       })
     });
     if (!response.ok) {
@@ -183,5 +173,6 @@ app.post("/sendLineNotification", async (req, res) => {
   }
 });
 
+// ポート設定
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
