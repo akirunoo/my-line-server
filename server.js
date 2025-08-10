@@ -4,6 +4,25 @@ const fetch = require("node-fetch");
 const cors = require("cors");
 const app = express();
 
+// CORS設定オプション
+const corsOptions = {
+  origin: 'https://be-zero-413cf.web.app',  // 許可するフロントのURL（あなたのLIFFやWebのドメイン）
+  methods: ['GET', 'POST', 'OPTIONS'],       // 許可するHTTPメソッド
+  allowedHeaders: ['Content-Type', 'Authorization'],  // 許可するヘッダー
+  credentials: true,                          // クッキーや認証情報を許可するならtrue
+};
+
+// CORSミドルウェアを使う（すべてのルートに適用）
+app.use(cors(corsOptions));
+
+// プリフライトリクエスト（OPTIONSメソッド）に対するレスポンスを明示的に返す（オプション）
+app.options('*', cors(corsOptions), (req, res) => {
+  res.sendStatus(200);
+});
+
+// その後にJSONボディパーサーなど他のミドルウェアを書く
+app.use(express.json());
+
 // 1. CORS設定（必ず一番上で使う）
 const corsOptions = {
   origin: 'https://be-zero-413cf.web.app', // フロントのURLに合わせてください
