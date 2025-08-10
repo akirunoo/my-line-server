@@ -48,16 +48,31 @@ let cacheTimestamp = 0;
 const CACHE_TTL = 1000 * 60; // 1分キャッシュ
 
 app.get('/reservations', async (req, res) => {
-  const now = Date.now();
-  if (cachedReservations && (now - cacheTimestamp < CACHE_TTL)) {
-    // キャッシュが有効ならキャッシュ返す
-    return res.json(cachedReservations);
+  // クエリパラメータで期間指定を受け取る
+  const start = req.query.start; // 例: "2025-08-04-00"
+  const end = req.query.end;     // 例: "2025-08-10-23"
+
+  if (!start || !end) {
+    return res.status(400).send("start と end パラメータは必須です");
   }
+
   try {
-    const snapshot = await admin.firestore().collection('reservations').get();
+    const now = Date.now();
+    if (cachedReservations && (now - cacheTimestamp < CACHE_TTL)) {
+      // キャッシュ有効なら返す（必要に応じてキャッシュも期間絞り込み対応に）
+      return res.json(cachedReservations);
+    }
+
+    // Firestoreでdatetimeフィールドの範囲クエリ
+    const snapshot = await admin.firestore().collection('reservations')
+      .where('datetime', '>=', start)
+      .where('datetime', '<=', end)
+      .get();
+
     const reservations = snapshot.docs.map(doc => doc.data());
     cachedReservations = reservations;
     cacheTimestamp = now;
+
     res.json(reservations);
   } catch (error) {
     console.error('Error fetching reservations:', error);
