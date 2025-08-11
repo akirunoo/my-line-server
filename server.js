@@ -7,20 +7,15 @@ const app = express();
 // CORS設定オプション
 const corsOptions = {
   origin: 'https://be-zero-413cf.web.app',  // 許可するフロントのURL
-  methods: ['GET', 'POST', 'OPTIONS'],       // 許可するHTTPメソッド
-  allowedHeaders: ['Content-Type', 'Authorization'],  // 許可するヘッダー
-  credentials: true,                          // クッキーや認証情報を許可
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
 };
 
-// CORSミドルウェアを全ルートに適用
 app.use(cors(corsOptions));
-
-// プリフライトリクエストに対するレスポンス
 app.options('*', cors(corsOptions), (req, res) => {
   res.sendStatus(200);
 });
-
-// JSONボディパーサー
 app.use(express.json());
 
 // Firebase Admin SDK初期化
@@ -38,7 +33,6 @@ if (!LINE_ACCESS_TOKEN) {
 }
 
 // ルート定義
-
 app.get('/ping', (req, res) => {
   res.status(200).send('OK');
 });
@@ -48,9 +42,8 @@ let cacheTimestamp = 0;
 const CACHE_TTL = 1000 * 60; // 1分キャッシュ
 
 app.get('/reservations', async (req, res) => {
-  // クエリパラメータで期間指定を受け取る
-  const start = req.query.start; // 例: "2025-08-04-00"
-  const end = req.query.end;     // 例: "2025-08-10-23"
+  const start = req.query.start;
+  const end = req.query.end;
 
   if (!start || !end) {
     return res.status(400).send("start と end パラメータは必須です");
@@ -59,11 +52,9 @@ app.get('/reservations', async (req, res) => {
   try {
     const now = Date.now();
     if (cachedReservations && (now - cacheTimestamp < CACHE_TTL)) {
-      // キャッシュ有効なら返す（必要に応じてキャッシュも期間絞り込み対応に）
       return res.json(cachedReservations);
     }
 
-    // Firestoreでdatetimeフィールドの範囲クエリ
     const snapshot = await admin.firestore().collection('reservations')
       .where('datetime', '>=', start)
       .where('datetime', '<=', end)
@@ -139,7 +130,6 @@ app.post("/verify", async (req, res) => {
 });
 
 app.post("/sendLineNotification", async (req, res) => {
-  console.log("sendLineNotification called with body:", req.body);
   const { lineUserId, message } = req.body;
   if (!lineUserId || !message) {
     return res.status(400).send("Missing parameters");
@@ -153,12 +143,7 @@ app.post("/sendLineNotification", async (req, res) => {
       },
       body: JSON.stringify({
         to: lineUserId,
-        messages: [
-          {
-            type: "text",
-            text: message
-          }
-        ]
+        messages: [{ type: "text", text: message }]
       })
     });
     if (!response.ok) {
@@ -170,6 +155,71 @@ app.post("/sendLineNotification", async (req, res) => {
   } catch (error) {
     console.error("LINE通知送信例外:", error);
     res.status(500).send("Server error");
+  }
+});
+
+// --- ここから予約重複排除トランザクションAPI ---
+app.post("/reserve", async (req, res) => {
+  const { userId, lineUserId, startDatetime, duration } = req.body;
+  if (!userId || !lineUserId || !startDatetime || !duration) {
+    return res.status(400).json({ error: "パラメータ不足" });
+  }
+
+  try {
+    const parts = startDatetime.split("-");
+    if (parts.length !== 4) throw new Error("startDatetime形式不正");
+
+    const year = parts[0];
+    const month = parts[1];
+    const day = parts[2];
+    let startHour = parseInt(parts[3], 10);
+
+    if (startHour < 8 || startHour + duration > 22) {
+      return res.status(400).json({ error: "営業時間外です" });
+    }
+
+    await admin.firestore().runTransaction(async (transaction) => {
+      const slotIds = [];
+      for (let i = 0; i < duration; i++) {
+        const h = startHour + i;
+        const slotId = `${year}-${month.padStart(2,"0")}-${day.padStart(2,"0")}-${String(h).padStart(2,"0")}`;
+        slotIds.push(slotId);
+      }
+
+      for (const slotId of slotIds) {
+        const q = admin.firestore().collection("reservations").where("datetime", "==", slotId).limit(1);
+        const snapshot = await transaction.get(q);
+        if (!snapshot.empty) {
+          throw new Error(`重複予約があります: ${slotId}`);
+        }
+      }
+
+      for (const slotId of slotIds) {
+        const docRef = admin.firestore().collection("reservations").doc();
+        transaction.set(docRef, {
+          userId,
+          datetime: slotId,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          duration
+        });
+      }
+    });
+
+    const message = `【予約完了通知】\n日時: ${startDatetime}\n利用時間: ${duration}時間\nご予約ありがとうございます！`;
+    const lineResponse = await fetch("https://line-firebase-server.onrender.com/sendLineNotification", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lineUserId, message }),
+    });
+    if (!lineResponse.ok) {
+      console.error("LINE通知失敗", await lineResponse.text());
+    }
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error("予約失敗:", error.message || error);
+    res.status(409).json({ error: error.message || "予約に失敗しました" });
   }
 });
 
